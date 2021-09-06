@@ -1,0 +1,395 @@
+import torch
+from torch import nn,optim 
+import torch.nn as nn
+
+import tqdm 
+import math
+import numpy as np
+from sklearn.model_selection import train_test_split
+
+from torch.utils.data import Dataset,DataLoader
+from torchvision.utils import save_image 
+from torchvision.datasets import ImageFolder 
+from torchvision import transforms,models
+
+import os
+import glob
+import pathlib
+import re# 全てのascii文字で辞書を作る 
+import string 
+import MeCab
+import unidic
+import re
+from bs4 import BeautifulSoup
+from urllib import request
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+import matplotlib.pyplot as plt
+import numpy as np
+
+import unittest
+import numpy as np
+import nltk
+import math
+from collections import Counter
+
+EPOCHS = 500
+
+def get_data(url):
+  with open(url, 'rb') as html:
+    soup = BeautifulSoup(html, 'lxml')
+  main_text = soup.find("div", class_='main_text')
+  #ルビが振ってあるのを削除
+  for yomigana in main_text.find_all(["rp","h4","rt"]):
+    yomigana.decompose()
+  sentences = [line.strip() for line in main_text.text.strip().splitlines()]
+  #str型に変換
+  rashomon_text=','.join(sentences)
+  mecab = MeCab.Tagger("-Owakati")
+  text = mecab.parse(rashomon_text)
+  text_line = re.sub('([！。])', r'\1\n', text)  # 。と！で改行
+  text_list = text_line.splitlines()
+  return text_list
+      # print(text_list)
+url1='aozorabunko/cards/000879/files/127_15260.html'
+upload_file_1=get_data(url1)
+rashomon_text=','.join(upload_file_1)
+# list化
+rashomon_text = re.sub('([！。])', r'\1\n', rashomon_text)  
+print('rashomon_text=',rashomon_text)
+# 。と！で改行
+rashomon_text = rashomon_text.splitlines()
+print('rashomon_text=',rashomon_text)
+
+url2='aozorabunko/cards/000879/files/92_14545.html'
+upload_file_2=get_data(url2)
+kumonoito_text=','.join(upload_file_2)
+kumonoito_text = re.sub('([！。])', r'\1\n', kumonoito_text)  
+kumonoito_text = kumonoito_text.splitlines()
+# print(kumonoito_text)
+#rashomonとkumonoito合体
+# rashomon_text=kumonoito_text+rashomon_text
+
+# with open('wakati.txt') as f:
+#     corpus = f.read()
+
+# rashomon_text = rashomon_text.split('\n')
+
+def make_dic(corpus):
+    word2id = {}
+    id2word = {}
+    for line in corpus:
+        if line == '':  # 空行はスキップ
+            continue
+        if '（' in line or '―' in line:  # かっこと「―」を含む文はスキップ
+            continue
+        for word in line.split(' '):
+            if word not in word2id:
+                id = len(word2id) + 1  # id=0はパディング用にとっておく
+                word2id[word] = id
+                id2word[id] = word
+    return word2id, id2word
+w2i, i2w = make_dic(rashomon_text)
+# print(w2i)
+
+def word2id(corpus, word_to_id, max_length):
+    result = []
+    for line in corpus:
+        if line == '':  # 空行はスキップ
+            continue
+        if '（' in line or '―' in line:  # かっこと「―」を含む文はスキップ
+            continue
+        tmp = [word_to_id[word] for word in line.split(' ')]
+        if len(tmp) > max_length:  # 形態素の数がmax_lengthより大きければ省略
+            continue
+        tmp += [0] * (max_length - len(tmp))
+        result.append(tmp)
+    return result
+
+def id2word(id_data, id_to_word):
+    result = ''
+    for line in id_data:
+        result += ''.join([id_to_word[id] for id in line if id != 0]) + '\n'
+    return result
+max_length = 20
+id_data = word2id(rashomon_text, w2i, max_length)
+# print(len(id_data))
+# print(id_data[0:2])
+# print(id2word(id_data[0:2], i2w))
+# print(rashomon_text[4:6])
+
+class KajiiDataset(Dataset):
+    def __init__(self, id_data):
+        super().__init__()
+        self.data_length = len(id_data)
+        # 訓練データ。例：［'僕', 'は', 'カレー', 'が', '好き']
+        self.x = [row[0:-1] for row in id_data]
+        # 正解ラベル。例：['は', 'カレー', 'が', '好き', '。']
+        self.y = [row[1:] for row in id_data]
+    
+    def __len__(self):
+        return self.data_length
+    
+    def __getitem__(self, idx):
+        return torch.tensor(self.x[idx]), torch.tensor(self.y[idx])
+
+
+dataset = KajiiDataset(id_data)
+dataset[0]
+
+BS = 25
+dl = DataLoader(dataset, batch_size=BS, shuffle=True, drop_last=True)
+#イテレータにして最初の要素から順番に取り出す
+iterator = iter(dl)
+X_train, y_train = next(iterator)
+# print(X_train.shape)
+# print(X_train)
+# print(y_train.shape)
+# print(y_train)
+
+VS = len(w2i) + 1  # vocabulary size
+ED = 5  
+# embedding dimension
+#第1引数に辞書の要素数を、第2引数に埋め込みベクトルの次元数を指定します。
+#また第3引数には上記のインデックス列でパディングに使っているインデックスを指定
+embedding = nn.Embedding(VS, ED, padding_idx=0)
+x = embedding(X_train)
+# #元のテンソルの形状
+# print('X_train.shape:', X_train.shape)
+# #元のデータ
+# print(X_train)
+# #
+# print('x.shape:', x.shape)
+# #ベクトル化されたデータ
+# print(x)
+# print(i2w[19])
+
+HS = 100  # hidden size
+NM = 1  # num of layers for RNN
+
+# #RNNのかわりにLSTM使用
+
+#今までは、
+#訓練データをPyTorchのEmbeddingクラスのインスタンスに入力
+#→RNNクラスに順伝播→全結合層に順伝播→辞書の要素数の出力を得るまで
+#の手順を見てみました
+class Net(nn.Module):
+    def __init__(self, vocab_size, embedding_dim, hidden_size,
+                 batch_size=25, num_layers=1):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.batch_size = batch_size
+        self.num_layers = num_layers
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+        self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
+        self.dropout = nn.Dropout(0.5)
+        self.lstm = nn.LSTM(embedding_dim, hidden_size,num_layers=self.num_layers,
+                            batch_first=True)
+        #書き足し
+        self.lstm2 = nn.LSTM(hidden_size, hidden_size, batch_first=True, num_layers=self.num_layers)
+        self.fc = nn.Linear(hidden_size, vocab_size)
+        self = self.to(self.device)
+
+#ここから書き足した
+        # self.batch_size = batch_size
+        # self.device = device
+        # self.embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
+        # self.hidden_size = hidden_size
+        # self.dropout = nn.Dropout(0.5)
+        # self.num_layers = num_layers
+        # self.lstm1 = nn.LSTM(embedding_dim, hidden_size, batch_first=True, num_layers=self.num_layers)
+        # self.lstm2 = nn.LSTM(hidden_size, hidden_size, batch_first=True, num_layers=self.num_layers)
+        # self.lstm3 = nn.LSTM(hidden_size, hidden_size, batch_first=True, num_layers=self.num_layers)
+        # self.fc = nn.Linear(hidden_size, vocab_size)
+
+    def init_hidden(self, batch_size=None):
+        if not batch_size:
+            batch_size = self.batch_size
+        self.hidden_state = torch.zeros(self.num_layers, self.batch_size,
+                                        self.hidden_size).to(self.device)
+#Embedding／RNN／Linerクラスのインスタンスを順次呼び出す
+    # def forward(self, x,h0=None):
+    #     x = self.embedding(x)
+    #     x = self.dropout(x)
+    #     # print('x.shape=',x.shape)
+    #     # print('self.hidden_size=',self.hidden_size)
+    #     # print('self.lstm(x, self.hidden_state)=',self.lstm(x,self.hidden_state))
+    #     x,self.hidden_state=self.lstm(x,h0)
+    #     # print('x.shape=',x.shape)
+    #     x = self.fc(x)
+    #     return x
+    def forward(self, x):
+        x = self.embedding(x)
+        x = self.dropout(x)
+        # h, self.hidden_state = self.lstm(x, self.hidden_state)
+        h, self.hidden_state = self.lstm(x)
+        h = self.dropout(h)
+        h, self.hidden_state = self.lstm2(h, self.hidden_state)
+        h = self.dropout(h)
+        h, self.hidden_state = self.lstm2(h, self.hidden_state)
+        x = self.fc(h)
+        return x
+
+
+EMBEDDING_DIM = 300
+HIDDEN_SIZE = 300
+NUM_LAYERS = 1
+VOCAB_SIZE = len(w2i) + 1
+BATCH_SIZE =25
+
+model = Net(VOCAB_SIZE, EMBEDDING_DIM, HIDDEN_SIZE, BATCH_SIZE, NUM_LAYERS)
+criterion = nn.CrossEntropyLoss(ignore_index=0)
+optimizer = torch.optim.SGD(model.parameters(), lr=0.03)
+
+#ニューラルネットワークモデルからの出力やその正解ラベルの形状を変形してから
+#損失関数に渡している点
+def train(model, dataloader, criterion, optimizer, epochs, vocab_size):
+    device = model.device
+    model.train()
+    losses = []
+
+    for epoch in range(EPOCHS):
+        running_loss = 0
+        for cnt, (X_train, y_train) in enumerate(dataloader):
+            optimizer.zero_grad()
+            X_train, y_train = X_train.to(device), y_train.to(device)
+            model.init_hidden()
+            outputs = model(X_train)
+            # print('outputs',outputs.shape)
+            # outputs = np.array(outputs)
+            # print('outputs',type(outputs))
+            outputs = outputs.reshape(-1, vocab_size)
+            y_train = y_train.reshape(-1)
+            loss = criterion(outputs, y_train)
+            running_loss += loss.item()
+            loss.backward()
+            optimizer.step()
+        losses.append(running_loss / cnt)
+
+        # print('+', end='')
+        if epoch % 50 == 0:
+            print(f'\nepoch: {epoch:3}, loss: {loss:.3f}')
+
+    # print(f'\nepoch: {epoch:3}, loss: {loss:.3f}')
+    return losses
+
+
+losses = train(model, dl, criterion, optimizer, EPOCHS, VOCAB_SIZE)
+plt.plot(losses)
+
+device = model.device
+model.eval()
+
+morphemes = ['蜘蛛']  # 「morpheme」は「形態素」という意味
+morpheme = morphemes[0]  # 「私」の次に何がくるかを推測
+sentence = morpheme
+
+l = len(w2i) + 1
+
+id = [[w2i[morpheme]]]  # 形態素を辞書w2iでインデックス列（のリスト）に変換
+tmp = torch.tensor(id).to(device)  # それをテンソルに
+model.init_hidden(1)  # バッチサイズは1
+o = model(tmp)  # ニューラルネットワークモデルに入力
+# print(o.shape)
+o = o.reshape(l)  # 出力を一次元ベクトルに変形
+# print(o.shape)
+
+probs = torch.nn.functional.softmax(o, dim=0).cpu().detach().numpy()  # 確率に
+next_idx = np.random.choice(l, p=probs)  # インデックスをランダムに選択
+next_morpheme = i2w[next_idx]  # インデックスを形態素に
+sentence += ' ' + next_morpheme  # 「私」＋' '＋「推測された形態素」
+id = [[w2i[next_morpheme]]]  # 次に入力するインデックス
+print(sentence)
+print(next_morpheme)
+
+num = np.random.choice(4)
+# print(num)  # 0、1、2、3、4のいずれか
+
+tmp = np.array([0.05, 0.05, 0.05, 0.05, 0.80])
+for i in range(5):
+    num = np.random.choice(len(tmp), p=tmp)
+    # print(f'{num}, ', end='')  # 4が多めに表示される
+
+#一つの形要素から文章生成する関数
+def make_sentence_from_one_word(morphemes, model, device, w2i, i2w):
+    model.eval()
+    batch_size = 1
+
+    l = len(w2i) + 1
+    eos = ['。', '！', '？']
+    result = []
+
+    with torch.no_grad():
+        for morpheme in morphemes:
+            model.init_hidden(batch_size)
+            sentence = morpheme
+            id = [[w2i[morpheme]]]
+            for idx in range(50):
+                t = torch.tensor(id).to(device)
+                outputs = model(t)
+                outputs = outputs.reshape(l)
+                probs = torch.softmax(outputs, dim=0).cpu().detach().numpy()
+                next_idx = np.random.choice(l, p=probs)
+                next_morpheme = i2w[next_idx]
+                sentence += ' ' + next_morpheme
+                if next_morpheme in eos:
+                    break
+                id = [[w2i[next_morpheme]]]
+            result.append(sentence.replace(' ', ''))
+    return result
+
+morphemes = ['暮方']
+result_text=make_sentence_from_one_word(morphemes, model, device, w2i, i2w)
+
+print(result_text)
+print('len(rashomon_text)=',len(rashomon_text))
+from nltk import word_tokenize
+from nltk import bleu_score
+  #str型に変換
+morphemes = ['暮方']
+result_text2=make_sentence_from_one_word(morphemes, model, device, w2i, i2w)
+
+
+result_text2=','.join(result_text2)
+mecab = MeCab.Tagger("-Owakati")
+result_text2 = mecab.parse(result_text2)
+#この時点ではstr
+print('resultのresult_text2=',result_text2)
+result_text2=','.join(result_text2)
+print('resultのresult_text2=',result_text2)
+  #list化
+result_text2=result_text2.splitlines()
+print('resultのresult_text2=',result_text2)
+# result_text=text_line.split()
+string='ある,日,の'
+output=string.split(',')
+print(output)
+print('resultのresult_text2=',result_text2)
+result_text2=','.join(result_text2)
+result_text2=result_text2.split()
+result_text=output+result_text2
+print('最終resultのresult_text=',result_text)
+# print(rashomon_text)
+# rashomon_text=','.join(rashomon_text)
+# text2 = mecab.parse(rashomon_text)
+# print(rashomon_text_line.split())
+rashomon_text=','.join(rashomon_text)
+# text_list = rashomon_text.splitlines()
+print('rashomonのrashomon_text=',rashomon_text.split())
+
+# for line in result:
+#         if line == '':  # 空行はスキップ
+#             continue
+#         if '（' in line or '―' in line:  # かっこと「―」を含む文はスキップ
+#             continue
+#         tmp = [w2i[word] for word in line.split(' ')]
+#         if len(tmp) > max_length:  # 形態素の数がmax_lengthより大きければ省略
+#             continue
+#         tmp += [0] * (max_length - len(tmp))
+BLEUscore=nltk.translate.bleu_score.sentence_bleu(rashomon_text, result_text,smoothing_function=bleu_score.SmoothingFunction().method1)
+#,smoothing_function=bleu_score.SmoothingFunction().method1
+print('BLEUscore=',BLEUscore)
